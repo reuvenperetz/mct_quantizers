@@ -16,12 +16,14 @@ import os
 import tempfile
 import unittest
 
+import pytest
 import torch
 import numpy as np
 from torch.fx import symbolic_trace
 
 from mct_quantizers.pytorch.activation_quantization_holder import PytorchActivationQuantizationHolder
-from mct_quantizers.pytorch.quantizers import ActivationSymmetricInferableQuantizer, ActivationPOTInferableQuantizer
+from mct_quantizers.pytorch.quantizers import ActivationSymmetricInferableQuantizer, ActivationPOTInferableQuantizer, \
+    ActivationUniformInferableQuantizer
 
 
 class TestPytorchActivationQuantizationHolderInference(unittest.TestCase):
@@ -54,22 +56,21 @@ class TestPytorchActivationQuantizationHolderInference(unittest.TestCase):
         # Assert some values are negative (signed quantization)
         self.assertTrue(torch.any(quantized_tensor < 0).item(), f'Expected some values to be negative but quantized tensor is {quantized_tensor}')
 
+@pytest.mark.parametrize("quantizer_class, quantizer_args", [
+    # Activation quantizers
+    (ActivationPOTInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
+    (ActivationSymmetricInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
+    (ActivationUniformInferableQuantizer, {"num_bits": 3, "min_range": [-2.0], "max_range": [2.0]}),
+])
+def test_activation_quantization_holder_save_and_load(quantizer_class, quantizer_args):
+    quantizer = quantizer_class(**quantizer_args)
+    model = PytorchActivationQuantizationHolder(quantizer)
+    x = torch.ones(1,1)
+    model(x)
+    fx_model = symbolic_trace(model)
 
-    def test_activation_quantization_holder_save_and_load(self):
-        num_bits = 3
-        thresholds = [4]
-        signed = True
-
-        quantizer = ActivationPOTInferableQuantizer(num_bits=num_bits,
-                                                    threshold=thresholds,
-                                                    signed=signed)
-        model = PytorchActivationQuantizationHolder(quantizer)
-        x = torch.ones(1,1)
-        model(x)
-        fx_model = symbolic_trace(model)
-
-        _, tmp_h5_file = tempfile.mkstemp('.pth')
-        torch.save(fx_model, tmp_h5_file)
-        loaded_model = torch.load(tmp_h5_file)
-        os.remove(tmp_h5_file)
-        loaded_model(x)
+    _, tmp_pth_file = tempfile.mkstemp('.pth')
+    torch.save(fx_model, tmp_pth_file)
+    loaded_model = torch.load(tmp_pth_file)
+    os.remove(tmp_pth_file)
+    loaded_model(x)
