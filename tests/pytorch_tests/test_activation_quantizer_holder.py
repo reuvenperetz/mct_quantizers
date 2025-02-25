@@ -22,8 +22,7 @@ import numpy as np
 from torch.fx import symbolic_trace
 
 from mct_quantizers.pytorch.activation_quantization_holder import PytorchActivationQuantizationHolder
-from mct_quantizers.pytorch.quantizers import ActivationSymmetricInferableQuantizer, ActivationPOTInferableQuantizer, \
-    ActivationUniformInferableQuantizer
+from mct_quantizers.pytorch.quantizers import ActivationSymmetricInferableQuantizer, ActivationPOTInferableQuantizer, ActivationUniformInferableQuantizer
 
 
 class TestPytorchActivationQuantizationHolderInference(unittest.TestCase):
@@ -56,21 +55,34 @@ class TestPytorchActivationQuantizationHolderInference(unittest.TestCase):
         # Assert some values are negative (signed quantization)
         self.assertTrue(torch.any(quantized_tensor < 0).item(), f'Expected some values to be negative but quantized tensor is {quantized_tensor}')
 
-@pytest.mark.parametrize("quantizer_class, quantizer_args", [
-    # Activation quantizers
-    (ActivationPOTInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
-    (ActivationSymmetricInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
-    (ActivationUniformInferableQuantizer, {"num_bits": 3, "min_range": [-2.0], "max_range": [2.0]}),
-])
-def test_activation_quantization_holder_save_and_load(quantizer_class, quantizer_args):
-    quantizer = quantizer_class(**quantizer_args)
-    model = PytorchActivationQuantizationHolder(quantizer)
-    x = torch.ones(1,1)
-    model(x)
-    fx_model = symbolic_trace(model)
 
-    _, tmp_pth_file = tempfile.mkstemp('.pth')
-    torch.save(fx_model, tmp_pth_file)
-    loaded_model = torch.load(tmp_pth_file)
-    os.remove(tmp_pth_file)
-    loaded_model(x)
+class TestActivationQuantizationHolder(unittest.TestCase):
+    
+    def setUp(self):
+        self.test_cases = [
+            (ActivationPOTInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
+            (ActivationSymmetricInferableQuantizer, {"num_bits": 3, "threshold": [4], "signed": True}),
+            (ActivationUniformInferableQuantizer, {"num_bits": 3, "min_range": [-2.0], "max_range": [2.0]}),
+        ]
+
+    def test_activation_quantization_holder_save_and_load(self):
+        for quantizer_class, quantizer_args in self.test_cases:
+            with self.subTest(quantizer_class=quantizer_class):
+                quantizer = quantizer_class(**quantizer_args)
+                model = PytorchActivationQuantizationHolder(quantizer)
+                x = torch.ones(1, 1)
+                model(x)
+                fx_model = symbolic_trace(model)
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pth') as tmp_file:
+                    tmp_pth_file = tmp_file.name
+                
+                try:
+                    torch.save(fx_model, tmp_pth_file)
+                    loaded_model = torch.load(tmp_pth_file)
+                    loaded_model(x)
+                finally:
+                    os.remove(tmp_pth_file)
+
+if __name__ == "__main__":
+    unittest.main()
